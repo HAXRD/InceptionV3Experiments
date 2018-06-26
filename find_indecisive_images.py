@@ -1,36 +1,18 @@
 # coding: utf-8
 
-# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
 
-"""Simple image classification with Inception.
+"""Find most indecisive images from given set of images.
 
-Run image classification with Inception trained on ImageNet 2012 Challenge data
+Run with Inception trained on ImageNet 2012 Challenge data
 set.
 
 This program creates a graph from a saved GraphDef protocol buffer,
 and runs inference on an input JPEG image. It outputs human readable
 strings of the top 5 predictions along with their probabilities.
 
-Change the --image_file argument to any jpg image to compute a
-classification of that image.
+Reference:
+  https://github.com/tensorflow/models
 
-Please see the tutorial and website for a detailed description of how
-to use this script to perform image recognition.
-
-https://tensorflow.org/tutorials/image_recognition/
 """
 
 from __future__ import absolute_import
@@ -55,13 +37,13 @@ FLAGS = None
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 # pylint: enable=line-too-long
 
-
+# Reuse the nodelookp mapping class from classify_image.py
 class NodeLookup(object):
 	"""Converts integer node ID's to human readable labels."""
 
 	def __init__(self,
-							 label_lookup_path=None,
-							 uid_lookup_path=None):
+                 label_lookup_path=None,
+                 uid_lookup_path=None):
 		if not label_lookup_path:
 			label_lookup_path = os.path.join(
 					FLAGS.model_dir, 'imagenet_2012_challenge_label_map_proto.pbtxt')
@@ -124,7 +106,7 @@ def progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100,
 	percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
 	filledLength = int(length * iteration//total)
 	bar = fill * filledLength + '-' * (length - filledLength)
-	print('%s |%s| %s%% %s' % (prefix, bar, percent, suffix))
+	print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end='\r')
 	if iteration == total:
 		print()
 
@@ -205,7 +187,7 @@ def maybe_download_and_extract():
 
 def write_to_file(dictionary):
 	with open(FLAGS.write_file, 'w') as f:
-		total_length = len(dictionary.iteritems())
+		total_length = len(dictionary)
 		for idx, (key, item) in enumerate(dictionary.iteritems()):
 			f.write('{}\n'.format(key))
 			for pair in item:
@@ -234,7 +216,7 @@ if __name__ == '__main__':
 	parser.add_argument(
 			'--model_dir',
 			type=str,
-			default='/tmp/imagenet',
+			default='/tmp/inception',
 			help="""\
 			Path to classify_image_graph_def.pb,
 			imagenet_synset_to_human_label_map.txt, and
@@ -244,7 +226,7 @@ if __name__ == '__main__':
 	parser.add_argument(
 			'--images_dir',
 			type=str,
-			default='/Users/xu/Documents/inception/testing_images',
+			default='/tmp/inception/testing_images',
 			help='Absolute folder path to image files.'
 	)
 	parser.add_argument(
@@ -256,7 +238,7 @@ if __name__ == '__main__':
 	parser.add_argument(
 		'--write_file',
 		type=str,
-		default='/Users/xu/Documents/output',
+		default='/tmp/inception/output',
 		help='Absolute output file path'
 	)
 	FLAGS, unparsed = parser.parse_known_args()
