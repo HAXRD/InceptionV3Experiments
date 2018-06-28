@@ -26,6 +26,8 @@ import sys
 import tarfile
 import pprint
 import collections
+import shutil
+from tqdm import tqdm
 
 import numpy as np
 from six.moves import urllib
@@ -185,25 +187,52 @@ def maybe_download_and_extract():
 		print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
 	tarfile.open(filepath, 'r:gz').extractall(dest_directory)
 
+def sort_dictionary(given_dictionary, method='default'):
+	if (method == 'weighted'):
+		def weighted_lambda(item):
+			weighted_sum = 0
+			mean = sum([item[1][i][1] for i in range(FLAGS.num_top_predictions)])/FLAGS.num_top_predictions
+			for i in range(FLAGS.num_top_predictions):
+				curr_score = item[1][i][1]
+				weighted_sum = weighted_sum + (curr_score - mean)**2
+			return weighted_sum
+		return collections.OrderedDict(sorted(given_dictionary.items(), key=weighted_lambda))
+	else: # default
+		return collections.OrderedDict(sorted(given_dictionary.items(), 
+                                    key=lambda it: it[1][0][1], reverse=True))
+
 def write_to_file(dictionary):
-	with open(FLAGS.write_file, 'w') as f:
+	with open(os.path.join(FLAGS.write_dir, 'output.txt'), 'w') as f:
 		total_length = len(dictionary)
-		for idx, (key, item) in enumerate(dictionary.iteritems()):
-			f.write('{}\n'.format(key))
+		for idx, (key, item) in tqdm(enumerate(dictionary.iteritems())):
+			f.write('{}. {}\n'.format(idx, key))
 			for pair in item:
 				f.write('\t%.9f:  %s\n' % (pair[1], pair[0]))
-			progress_bar(idx + 1, total_length, prefix='Writing progress ', suffix='Completed', length=50)
+			# progress_bar(idx + 1, total_length, prefix='Writing progress ', suffix='Completed', length=50)
+
+def filter_copy_files_to_dir(given_dictionary):
+	if os.path.exists(FLAGS.write_dir):
+		shutil.rmtree(FLAGS.write_dir, ignore_errors=True)
+	os.makedirs(FLAGS.write_dir)
+	
+	for key, item in tqdm(enumerate(given_dictionary.iteritems())):
+		filename = item[0]
+		shutil.copyfile(os.path.join(FLAGS.images_dir, filename), os.path.join(FLAGS.write_dir, str(key)+'.'+filename.split('.')[-1]))
+
 
 def main(_):
-	maybe_download_and_extract()
-	image_top_k_category_score_pair_dictionary = collections.OrderedDict(
-		sorted(run_inference_on_images(FLAGS.images_dir).items(), key=lambda it: it[1][0][1], reverse=True))
+	# image_top_k_category_score_pair_dictionary = collections.OrderedDict(
+	# 	sorted(run_inference_on_images(FLAGS.images_dir).items(), key=lambda it: it[1][0][1], reverse=True))
 	# for key, item in image_top_k_category_score_pair_dictionary.iteritems():
 	# 	print(key)
 	# 	for pair in item:
 	# 		print('\t%.9f:  %s', (pair[1], pair[0]))
-	write_to_file(image_top_k_category_score_pair_dictionary)
-
+	# write_to_file(image_top_k_category_score_pair_dictionary)
+	maybe_download_and_extract()
+	sorted_image_top_k_category_score_pair_dictionary = sort_dictionary(
+							run_inference_on_images(FLAGS.images_dir), method=FLAGS.sort_method)
+	filter_copy_files_to_dir(sorted_image_top_k_category_score_pair_dictionary)
+	write_to_file(sorted_image_top_k_category_score_pair_dictionary)
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
@@ -214,29 +243,35 @@ if __name__ == '__main__':
 	# imagenet_2012_challenge_label_map_proto.pbtxt:
 	#   Text representation of a protocol buffer mapping a label to synset ID.
 	parser.add_argument(
-			'--model_dir',
-			type=str,
-			default='/tmp/inception',
-			help="""\
-			Path to classify_image_graph_def.pb,
-			imagenet_synset_to_human_label_map.txt, and
-			imagenet_2012_challenge_label_map_proto.pbtxt.\
-			"""
+        '--model_dir',
+        type=str,
+        default='/tmp/inception',
+        help="""\
+        Path to classify_image_graph_def.pb,
+        imagenet_synset_to_human_label_map.txt, and
+        imagenet_2012_challenge_label_map_proto.pbtxt.\
+        """
 	)
 	parser.add_argument(
-			'--images_dir',
-			type=str,
-			default='/tmp/inception/testing_images',
-			help='Absolute folder path to image files.'
+        '--images_dir',
+        type=str,
+        default='/tmp/inception/testing_images',
+        help='Absolute folder path to image files.'
 	)
 	parser.add_argument(
-			'--num_top_predictions',
-			type=int,
-			default=5,
-			help='Display this many predictions.'
+        '--num_top_predictions',
+        type=int,
+        default=5,
+        help='Display this many predictions.'
 	)
 	parser.add_argument(
-		'--write_file',
+		'--sort_method',
+		type=str,
+		default='default',
+		help='Either default or weighted.'
+    )
+	parser.add_argument(
+		'--write_dir',
 		type=str,
 		default='/tmp/inception/output',
 		help='Absolute output file path'
