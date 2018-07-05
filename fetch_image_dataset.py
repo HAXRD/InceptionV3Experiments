@@ -41,7 +41,9 @@ def maybe_download_and_extract(URL):
         print()
         statinfo = os.stat(filepath)
         print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
-    tarfile.open(filepath, 'r:gz').extractall(dest_directory)
+        tarfile.open(filepath, 'r:gz').extractall(dest_directory)
+    else:
+        print('{} exist, jumping download_and_extract'.format(filepath))
 
 def maybe_download_images_with_urls(path):
     """Read the image_urls file and download the images with urls"""
@@ -123,31 +125,54 @@ def main(_):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    dev_mac = {
+        'model_dir':    '/tmp/inception',
+        'dataset_size': 10,
+        'read_mode':    'default',
+        'seed':         5
+    }
+    dev_ubu = {
+        'model_dir':    '/tmp/inception',
+        'dataset_size': 100,
+        'read_mode':    'default',  # specify this only in terminal
+        'seed':         5
+    }
+    prod_ubu = {
+        'model_dir':    '/home/xu/Documents/inception',
+        'dataset_size': 10000,
+        'read_mode':    'default',  # specify this only in terminal
+        'seed':         5
+    }
+
+    # use_dict = dev_mac
+    # use_dict = dev_ubu
+    use_dict = prod_ubu
 
     parser.add_argument(
         '--model_dir',
         type=str,
-        default='/tmp/inception',
+        default=use_dict['model_dir'],
         help='Absolute directory to store the model files.'
     )
     parser.add_argument(
         '--dataset_size',
         type=int,
-        default=10,
+        default=use_dict['dataset_size'],
         help='The size of image dataset.'
     )
     # random mode has not been implemented yet
     parser.add_argument(
         '--read_mode',
         type=str,
-        default='default',
+        default=use_dict['read_mode'],
         help='Mode for reading txt file, default or random.'
     )
     parser.add_argument(
         '--seed',
         type=int,
-        default=5,
+        default=use_dict['seed'],
         help="Random seed, default=5."
     )
     FLAGS, unparsed = parser.parse_known_args()
+    print(FLAGS)
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
