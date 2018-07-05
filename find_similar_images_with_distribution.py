@@ -136,8 +136,6 @@ def run_predictions(images_dir):
     if not tf.gfile.IsDirectory(images_dir):
         tf.logging.fatal('Folder does not exist %s', images_dir)
 
-    image_top_k_category_score_pair_dictionary = {}
-
     category_score_pair_dictionary = {}
 
     # Creates node ID --> English string lookup.
@@ -161,22 +159,25 @@ def run_predictions(images_dir):
         # Run predictions for a list of images and store them in dictionary as category_score_pair_dictionary
         for idx, image_name in enumerate(tf.gfile.ListDirectory(images_dir)):
             image_data = tf.gfile.FastGFile(os.path.join(images_dir, image_name), 'rb').read()
-            predictions = sess.run(softmax_tensor,
-                                  {'DecodeJpeg/contents:0': image_data})
-            predictions = np.squeeze(predictions)
-            # print('predictions:', predictions)
-            # print('shape:      ', predictions.shape)
+            try:
+                predictions = sess.run(softmax_tensor,
+                                    {'DecodeJpeg/contents:0': image_data})
+                predictions = np.squeeze(predictions)
+                # print('predictions:', predictions)
+                # print('shape:      ', predictions.shape)
 
-            # top_k = predictions.argsort()[:][::-1]
-            # print('top_k:', top_k)
-            # print('shape:      ', top_k.shape)
+                # top_k = predictions.argsort()[:][::-1]
+                # print('top_k:', top_k)
+                # print('shape:      ', top_k.shape)
 
-            category_score_pairs = []
-            for node_id, score in enumerate(predictions):
-                human_string = node_lookup.id_to_string(node_id)
-                category_score_pairs.append((human_string,score))
-            category_score_pair_dictionary[image_name] = category_score_pairs
-            progress_bar(idx + 1, total_length, prefix='Classification process', suffix='Completed.', length=50)
+                category_score_pairs = []
+                for node_id, score in enumerate(predictions):
+                    human_string = node_lookup.id_to_string(node_id)
+                    category_score_pairs.append((human_string,score))
+                category_score_pair_dictionary[image_name] = category_score_pairs
+                progress_bar(idx + 1, total_length, prefix='Classification process', suffix='Completed.', length=50)
+            except:
+                pass
     return category_score_pair_dictionary
 
 
@@ -215,10 +216,10 @@ def sort_dictionary(given_dictionary, method='default'):
                 curr_score = item[1][i][1]
                 weighted_sum = weighted_sum + (curr_score - mean)**2
             return weighted_sum
-        return collections.OrderedDict(sorted(predictions_sorted_dictionary.items(), key=weighted_lambda))
+        return collections.OrderedDict(sorted(predictions_sorted_dictionary.items(), key=weighted_lambda)[:FLAGS.num_top_i_images])
     else: # default
         return collections.OrderedDict(sorted(predictions_sorted_dictionary.items(), 
-                                    key=lambda it: it[1][0][1], reverse=True))
+                                    key=lambda it: it[1][0][1], reverse=True)[:FLAGS.num_top_i_images])
 
 def sort_similarity_dictionary(sim_dic):
     sorted_sim_dic = {}
@@ -227,44 +228,50 @@ def sort_similarity_dictionary(sim_dic):
     return sorted_sim_dic
 
 def write_to_file(given_dictionary, directory, filename):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    with open(os.path.join(directory, filename), 'w') as f:
-        total_length = len(given_dictionary)
-        for idx, (key, item) in tqdm(enumerate(given_dictionary.iteritems())):
-            f.write('{}. {}\n'.format(idx, key))
+    for idx, (key, item) in tqdm(enumerate(given_dictionary.iteritems())):
+        with open(os.path.join(directory, key, filename), 'w') as f:
+            f.write('Given Image {}\n'.format(key))
             for pair in item:
                 f.write('\t%.9f:  %s\n' % (pair[1], pair[0]))
-            # progress_bar(idx + 1, total_length, prefix='Writing progress ', suffix='Completed', length=50)
 
 def filter_copy_files_to_dir(given_dictionary, directory, mode):
     # Clean the directory
     if os.path.exists(directory):
         shutil.rmtree(directory, ignore_errors=True)
     os.makedirs(directory)
-    
+
     for key, item in tqdm(enumerate(given_dictionary.iteritems())):
         if mode == 0:
             filename = item[0]
             shutil.copyfile(os.path.join(FLAGS.model_dir, FLAGS.dataset_name, filename),
                                      os.path.join(directory, str(key) + '.' + filename.split('.')[-1]))
         elif mode == 1:
+            #   key:index   item:('xxx.jpg', [('s1.jpg', similarity),...])
             for i, pair in enumerate(item[1]):
-                print(pair)
+                #   i: index  pair:('s1.jpg', similarity)
                 filename = pair[0]
+                if not os.path.exists(os.path.join(directory, item[0])):
+                    os.makedirs(os.path.join(directory, item[0]))
                 shutil.copyfile(os.path.join(FLAGS.model_dir, FLAGS.dataset_name, filename),
-                                     os.path.join(directory, str(i) + '.' + filename.split('.')[-1]))
+                                     os.path.join(directory, item[0], str(i) + '.' + filename.split('.')[-1]))
 
 
-def calculate_log_similarity(tar_item, std_item):
+def calculate_similarities(tar_item, std_item):
     tar_vec = np.array([tup[1] for tup in tar_item]) 
     std_vec = np.array([tup[1] for tup in std_item])
 
-    dot = np.dot(tar_vec, std_vec)
-    mod_tar_vec = np.sqrt(np.sum(np.square(tar_vec)))
-    mod_std_vec = np.sqrt(np.sum(np.square(std_vec)))
-    similarity = dot/(mod_tar_vec*mod_std_vec)
-    return np.log10(similarity)
+    # Cosine Similarity
+    if FLAGS.similarity_method == "Cosine":
+        dot = np.dot(tar_vec, std_vec)
+        mod_tar_vec = np.sqrt(np.sum(np.square(tar_vec)))
+        mod_std_vec = np.sqrt(np.sum(np.square(std_vec)))
+        similarity = dot/(mod_tar_vec*mod_std_vec)
+        return similarity
+    elif FLAGS.similarity_method == "KL":
+        p_over_q = tar_vec / std_vec
+        log_p_over_q = np.log10(p_over_q)
+        KL = np.dot(tar_vec, log_p_over_q)
+        return -KL
 
 def main(_):
     # Download checkpoint files and etc.
@@ -274,74 +281,97 @@ def main(_):
     # Check SAVE/RESTORE mode
     if FLAGS.dict_mode == 'SAVE':
         # Do the predictions for given 'FLAGS.model_dir'/'FLAGS.dataset_name' dataset stored as dic,
-        #   and save the dictionary file to 'FLAGS.model_dir' as 'FLAGS.dataset_name'.pickle
+        #   and save the dictionary file to 'FLAGS.model_dir/dicts' as 'FLAGS.dataset_name'.pickle
         dic = run_predictions(os.path.join(FLAGS.model_dir, FLAGS.dataset_name))
-        
-        with open(os.path.join(FLAGS.model_dir, FLAGS.dataset_name+'.pickle'), 'wb') as f:
+        save_folder = os.path.join(FLAGS.model_dir, 'dicts')
+        save_path   = os.path.join(save_folder, FLAGS.dataset_name+'.pickle')
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+        with open(save_path, 'wb') as f:
             pickle.dump(dic, f)
-        
-        print("Saved dictionary to %s" % (os.path.join(FLAGS.model_dir, FLAGS.dataset_name+'.pickle')))
+        print("Saved dictionary to %s" % (save_path))
     else:
         # Restore dictionay file from 'FLAGS.model_dir' as dic
-        with open(os.path.join(FLAGS.model_dir, FLAGS.dataset_name+'.pickle'), 'rb') as f:
+        restore_path = os.path.join(FLAGS.model_dir, 'dicts', FLAGS.dataset_name+'.pickle')
+        with open(restore_path, 'rb') as f:
             dic = pickle.load(f)
-        print("Restored dictionary from %s" % (os.path.join(FLAGS.model_dir, FLAGS.dataset_name+'.pickle')))
+        print("Restored dictionary from %s" % (restore_path))
 
-    # Sort the dic with 'FLAGS.sort_method' as sorted_dict:
-    #   1. sort the predictions, and only store the top 'FLAGS.num_top_p_predictions'.
-    #   2. sort the files according to its indecisiveness and only store the top 'FLAGS.num_top_i_images'.
-    sorted_dict = sort_dictionary(dic, method=FLAGS.sort_method)
-    
-    # Copy top 'FLAGS.num_top_i_images' files from 'FLAGS.model_dir'/'FLAGS.dataset_name' to 'FLAGS.output_dir'/'FLAGS.dataset_name'/indecisive.
-    filter_copy_files_to_dir(sorted_dict,
-                             os.path.join(FLAGS.output_dir, FLAGS.dataset_name, 'indecisive'), 0)
+    """Find indecisive images and copy top k of them to output/indecisive"""
+    if FLAGS.find_indecisives:
+        # Sort the dic with 'FLAGS.sort_method' as sorted_dict:
+        #   1. sort the predictions, and only store the top 'FLAGS.num_top_p_predictions'.
+        #   2. sort the files according to its indecisiveness and only store the top 'FLAGS.num_top_i_images'.
+        sorted_dict = sort_dictionary(dic, method=FLAGS.sort_method)
+        
+        # Copy top 'FLAGS.num_top_i_images' files from 'FLAGS.model_dir'/'FLAGS.dataset_name' to 'FLAGS.model_dir'/outputs/'FLAGS.dataset_name'/indecisive.
+        filter_copy_files_to_dir(sorted_dict,
+                                os.path.join(FLAGS.model_dir, 'outputs', FLAGS.dataset_name, 'indecisive'), 0)
 
-    # Write sorted_dict to 'FLAGS.output_dir'/'FLAGS.dataset_name'/indecisive/dict+'_'+'FLAGS.num_top_i_images'.pickle
-    write_to_file(sorted_dict, 
-                  os.path.join(FLAGS.output_dir, FLAGS.dataset_name, 'indecisive'),
-                  'dict_' + str(FLAGS.num_top_i_images))
+        # Write sorted_dict to 'FLAGS.model_dir'/outputs/'FLAGS.dataset_name'/indecisive/dict+'_'+'FLAGS.num_top_i_images'.pickle
+        write_to_file(sorted_dict, 
+                    os.path.join(FLAGS.model_dir, 'outputs', FLAGS.dataset_name, 'indecisive'),
+                    'dict_' + str(FLAGS.num_top_i_images))
     
+    """Find most similar images with given images,
+        the output similar images are stored in outputs/similar/given_image_name/*.jpg    
+    """
     # Check if provide target image
-    if FLAGS.target_dir != '':
-        # Check if file exist
-        if os.path.exists(FLAGS.target_dir):
-            # Do prediction for given image and return a dictionary as tar_dic.
-            tar_dic = run_predictions(os.path.join(FLAGS.target_dir))
-            # Calculate similarities between tar_dic of the images in the 'FLAGS.target_dir' and every distribution in dic and store as sim_dic.
-            sim_dic = {}
-            # item: [('fox', score),...]
-            for tar_key, tar_item in tar_dic.iteritems():
-                sim_list = []
-                for key, item in dic.iteritems():
-                    sim_list.append((key, calculate_log_similarity(tar_item, item)))
-                sim_dic[tar_key] = sim_list
+    # Check if file exist
+    target_dir = os.path.join(FLAGS.model_dir, 'targets', FLAGS.dataset_name)
+    if os.path.exists(target_dir):
+        # Do prediction for given image and return a dictionary as tar_dic.
+        tar_dic = run_predictions(target_dir) # {'xxx.jpg': [(category, 0.0012), ...], ...}
 
-            # Sort sim_dic and only store 'FLAGS.num_top_s_similar' as sorted_tar_similarities
-            sorted_sim_dic = sort_similarity_dictionary(sim_dic)
-            print("Finished calculating similarities")
+        # Calculate similarities between tar_dic of the images in the 'target_dir' and every distribution in dic and store as sim_dic.
+        sim_dic = {} # {'xxx.jpg': [('s1.jpg', similarity), ...], ...}
+        # item: [('fox', score),...]
+        for tar_key, tar_item in tar_dic.iteritems():
+            sim_list = []
+            # !!! Implement different types of SIMILARITY functions !!!
+            for key, item in dic.iteritems():
+                sim_list.append((key, calculate_similarities(tar_item, item)))
+            sim_dic[tar_key] = sim_list 
+        print("Finished calculating similarities")
 
-            # Copy top 'FLAGS.num_top_s_similar' files from 'FLAGS.model_dir'/'FLAGS.dataset_name' to 'FLAGS.output_dir'/'FLAGS.dataset_name'/similar
-            filter_copy_files_to_dir(sorted_sim_dic,
-                             os.path.join(FLAGS.output_dir, FLAGS.dataset_name, 'similar'), 1)
-            print("Fiished copying files")
-            # Write sorted_sim_dic to 'FLAGS.output_dir'/'FLAGS.dataset_name'/similar/similar+'_'+'FLAGS.num_top_s_similar'
-            write_to_file(sorted_sim_dic, 
-                  os.path.join(FLAGS.output_dir, FLAGS.dataset_name, 'similar'),
-                  'similar_top_' + str(FLAGS.num_top_i_images))
-            print("Fiished writing files")
-        else:
-            print('Directory does not exist %s' % (FLAGS.target_dir))
+        # Sort sim_dic and only store 'FLAGS.num_top_s_similar' as sorted_tar_similarities
+        sorted_sim_dic = sort_similarity_dictionary(sim_dic)
+        print("Finished sorting similarities")
+
+        # Copy top 'FLAGS.num_top_s_similar' files from 'FLAGS.model_dir'/'FLAGS.dataset_name' to 'FLAGS.model_dir'/outputs/'FLAGS.dataset_name'/similar
+        filter_copy_files_to_dir(sorted_sim_dic,
+                            os.path.join(FLAGS.model_dir, 'outputs', FLAGS.dataset_name, 'similar', FLAGS.similarity_method), 1)
+        print("Finished copying files")
+        # Write sorted_sim_dic to 'FLAGS.model_dir'/'FLAGS.dataset_name'/similar/given_image/similar+'_'+'FLAGS.num_top_s_similar'
+        write_to_file(sorted_sim_dic, 
+                os.path.join(FLAGS.model_dir, 'outputs', FLAGS.dataset_name, 'similar', FLAGS.similarity_method),
+                'similar_top_' + str(FLAGS.num_top_i_images))
+        print("Fiished writing files")
     else:
-        print("FLAGS.target_dir is not specified: %s" % (FLAGS.target_dir))
+        print('Directory does not exist %s' % (target_dir))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
+    dev_mac = {
+        'dict_mode':                'SAVE',
+        'model_dir':                '/tmp/inception',
+        'dataset_name':             'sample_1000_images', # Modify this
+        'sort_method':              'default', # Modify this
+        'similarity_method':        'Cosine',
+        'find_indecisives':         False,
+        'num_top_p_predictions':    5,
+        'num_top_i_images':         11,
+        'num_top_s_similar':        10
+    }
+
+    use_dic = dev_mac
+
     parser.add_argument(
         '--dict_mode',
         type=str,
-        default='SAVE',
+        default=use_dic['dict_mode'],
         help="""\
         SAVE/RESTORE: the prediction results for given dataset.
             filename: 'given_dataset_foldername' + '.pickle'
@@ -359,7 +389,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--model_dir',
         type=str,
-        default='/tmp/inception',
+        default=use_dic['model_dir'],
         help="""\
         Path to classify_image_graph_def.pb,
         imagenet_synset_to_human_label_map.txt, and
@@ -370,42 +400,40 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_name',
         type=str,
-        default='sample_1000_images',
+        default=use_dic['dataset_name'],
         help='Dataset name for provided images'
     )
-
+    parser.add_argument(
+        '--similarity_method',
+        type=str,
+        default=use_dic['similarity_method'],
+        help='The method to compare the similarity of two distributions'
+    )
     parser.add_argument(
         '--sort_method',
         type=str,
-        default='default',
+        default=use_dic['sort_method'],
         help='Either default or weighted.'
+    )
+    parser.add_argument(
+        '--find_indecisives',
+        type=bool,
+        default=use_dic['find_indecisives']
     )
     parser.add_argument(
         '--num_top_p_predictions',
         type=int,
-        default=5
+        default=use_dic['num_top_p_predictions']
     )
     parser.add_argument(
         '--num_top_i_images',
         type=int,
-        default=100
-    )
-    parser.add_argument(
-        '--output_dir',
-        type=str,
-        default='/tmp/inception/output',
-        help='Absolute output file path'
-    )
-    parser.add_argument(
-        '--target_dir',
-        type=str,
-        default='',
-        help='Target image directory we provide to be classified to find the most similar image set.'
+        default=use_dic['num_top_i_images']
     )
     parser.add_argument(
         '--num_top_s_similar',
         type=int,
-        default=10,
+        default=use_dic['num_top_s_similar'],
         help='Top s number of most similar images for given image.'
     )
    
