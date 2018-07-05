@@ -15,6 +15,7 @@ import re
 import sys
 import tarfile
 import wget
+import random
 
 import numpy as np
 from six.moves import urllib
@@ -23,7 +24,6 @@ import tensorflow as tf
 FLAGS = None
 
 IMAGE_URLS = 'http://image-net.org/imagenet_data/urls/imagenet_fall11_urls.tgz'
-
 
 def maybe_download_and_extract(URL):
     """Download and extract tar file."""
@@ -43,20 +43,20 @@ def maybe_download_and_extract(URL):
         print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
     tarfile.open(filepath, 'r:gz').extractall(dest_directory)
 
-def maybe_download_images_with_urls(limit=10):
+def maybe_download_images_with_urls(path):
     """Read the image_urls file and download the images with urls"""
     # IMAGE_URLS = 'http://image-net.org/imagenet_data/urls/imagenet_fall11_urls.tgz'
     dest_directory = FLAGS.model_dir # /tmp/inception
-    foldername = 'sample_1000_images'
+    foldername = 'sample_' + path.split('/')[-1].split('.')[0]
     folderpath = os.path.join(dest_directory, foldername)
     print('Images are saved %s' % (folderpath))
 
     if not os.path.exists(folderpath):
         os.makedirs(folderpath)
-    with open(os.path.join(dest_directory, 'fall11_urls.txt'), 'r') as f:
+    with open(path, 'r') as f:
         num = 0
         for line in f:
-            if num > limit:
+            if num > FLAGS.dataset_size:
                 break
             [image_name, image_url] = line.split()
             extension = image_url.split('.')[-1]
@@ -85,9 +85,41 @@ def maybe_download_images_with_urls(limit=10):
                 print('Unknown Error: \t', image_url)
             num = num + 1
 
+def initial_urls_file_path():
+    path = None
+    if FLAGS.read_mode == 'random':
+        path = os.path.join(FLAGS.model_dir, 'fall11_urls_t'+str(FLAGS.dataset_size)+'_s'+str(FLAGS.seed)+'.txt')
+    else: 
+        path = os.path.join(FLAGS.model_dir, 'fall11_urls_t'+str(FLAGS.dataset_size)+'.txt')
+    # print(path)
+    return path
+
+def maybe_shuffle_urls_file(path):
+    if not os.path.exists(path):
+        # Set seed
+        random.seed(FLAGS.seed)
+        # Read file
+        with open(os.path.join(FLAGS.model_dir, 'fall11_urls.txt'), 'r') as source:
+            data = [(random.random(), line) for line in source]
+        print("Finish reading...")
+        if FLAGS.read_mode == 'random':
+            data.sort()
+        print("Writing to file: ", path)
+        with open(path, 'w') as target:
+            cnt = 0
+            for _, line in data:
+                if cnt > FLAGS.dataset_size:
+                    break
+                target.write(line)
+                cnt = cnt + 1
+    else:
+        print('File exist, jumping sorting step!')
+
 def main(_):
     maybe_download_and_extract(IMAGE_URLS)
-    maybe_download_images_with_urls(FLAGS.dataset_size)
+    download_file_path = initial_urls_file_path()
+    maybe_shuffle_urls_file(download_file_path)
+    maybe_download_images_with_urls(download_file_path)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -101,7 +133,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_size',
         type=int,
-        default=1000,
+        default=10,
         help='The size of image dataset.'
     )
     # random mode has not been implemented yet
@@ -111,6 +143,11 @@ if __name__ == '__main__':
         default='default',
         help='Mode for reading txt file, default or random.'
     )
-
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=5,
+        help="Random seed, default=5."
+    )
     FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
