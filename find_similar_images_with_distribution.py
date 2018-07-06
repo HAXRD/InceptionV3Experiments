@@ -225,11 +225,19 @@ def maybe_download_and_extract():
     tarfile.open(filepath, 'r:gz').extractall(dest_directory)
 
 def sort_dictionary(given_dictionary, method='default'):
+    # given_dictionary: {'image.jpg': [('category', score)]}
+
     # Sort the dic with 'FLAGS.sort_method' as sorted_dict:
     #   1. sort the predictions, and only store the top 'FLAGS.num_top_p_predictions'.
     predictions_sorted_dictionary = {} 
     for key in given_dictionary:
-        predictions_sorted_dictionary[key] = sorted(given_dictionary[key], key=lambda x: x[1], reverse=True)[:FLAGS.num_top_p_predictions]
+        if method == 'default':
+            predictions_sorted_dictionary[key] = sorted(given_dictionary[key], key=lambda x: x[1], reverse=True)[:FLAGS.num_top_p_predictions]
+        elif method == 'weighted':
+            top_p_prediction_pairs = sorted(given_dictionary[key], key=lambda x: x[1], reverse=True)[:FLAGS.num_top_p_predictions]
+            top_p_sum = np.sum(np.array([pair[1] for pair in top_p_prediction_pairs]))
+            if top_p_sum > FLAGS.weighted_threshold/100:
+                predictions_sorted_dictionary[key] = top_p_prediction_pairs
 
     #   2. sort the files according to its indecisiveness and only store the top 'FLAGS.num_top_i_images'.
     if (method == 'weighted'):
@@ -251,7 +259,8 @@ def sort_similarity_dictionary(sim_dic):
         sorted_sim_dic[key] = sorted(item, key=lambda x: x[1], reverse=True)[:FLAGS.num_top_s_similar]
     return sorted_sim_dic
 
-def write_to_file(given_dictionary, directory, filename, mode):
+
+def write_to_file(given_dictionary, directory, filename, mode, lookup_dictionary={}):
     # Write dict of "num_top_i_images" images' "num_top_p_predictions" distributions
     if mode == 0:
         write_dir = os.path.join(directory, filename)
@@ -260,20 +269,33 @@ def write_to_file(given_dictionary, directory, filename, mode):
                 # _: enumerate_i, key: xxx.jpg, pairs: [('category', probability)]
                 f.write('{}\n'.format(key))
                 f.write('\tProbabilities\tCategories\n')
+                prob_sum = 0
                 for pair in pairs:
+                    prob_sum = prob_sum + pair[1]
                     # pair: ('category', probability)
                     f.write('\t%.9f:  %s\n' % (pair[1], pair[0]))
+                f.write('\t%.9f:  SUM\n' % (prob_sum))
     # Write num_top_s_similar of similar images 
     # {'xxx.jpg': [('s1.jpg', similarity), ...], ...}
     elif mode == 1:
+        def find_top_p_pairs(given_pairs):
+            return sorted(given_pairs, key=lambda x: x[1], reverse=True)[:FLAGS.num_top_p_predictions]
         for _, (key, pairs) in tqdm(enumerate(given_dictionary.iteritems())):
             write_dir = os.path.join(directory, key, filename)
             with open(write_dir, 'w') as f:
-                f.write('Target {}:\n'.format(key))
-                f.write('\tImages\t{} Similarities\n'.format(FLAGS.similarity_method))
+                f.write('{0}Target {1}:{0}\n'.format('='*5,key))
+                # Write given image's distributions (top_p_predictions)
+                for i, pair in enumerate(find_top_p_pairs(lookup_dictionary[key])):
+                    f.write('  %d\t%.5f:  %s:\n' % (i+1, pair[1], pair[0]))
+                f.write('{}\n'.format('='*30))
+                # Write each similar images
+                f.write('{0} Images {0} {1}_Similarities {0}\n'.format('-'*4,FLAGS.similarity_method))
                 for i, pair in enumerate(pairs):
-                    # pair: ('s1', similarity)
+                    # pair: ('s1.jpg', similarity)
+                    f.write('  \t{}\n'.format('*'*30))
                     f.write('%d\t%s:\t%.9f\n' % (i+1, pair[0], pair[1]))
+                    for j, category_score_pair in enumerate(find_top_p_pairs(lookup_dictionary[pair[0]])):
+                        f.write('\t%d.)\t%.5f: %s\n' % (j+1, category_score_pair[1], category_score_pair[0]))
             
 
 def filter_copy_files_to_dir(given_dictionary, directory, mode):
@@ -394,7 +416,7 @@ def main(_):
             filter_copy_files_to_dir(sorted_sim_dic, write_dir, 1)
             print("Finished copying files")
             # Write sorted_sim_dic to 'FLAGS.model_dir'/'FLAGS.dataset_name'/similar/given_image/similar+'_'+'FLAGS.num_top_s_similar'
-            write_to_file(sorted_sim_dic, write_dir, 'similar_top_' + str(FLAGS.num_top_s_similar), 1)
+            write_to_file(sorted_sim_dic, write_dir, 'similar_top_' + str(FLAGS.num_top_s_similar), 1, dic)
             print("Finished writing files")
         else:
             print('Directory does not exist %s' % (target_dir))
@@ -408,27 +430,53 @@ if __name__ == '__main__':
         'dict_mode':                'SAVE',
         'model_dir':                '/tmp/inception',
         'dataset_name':             'sample_1000_images', # Modify this
-        'sort_method':              'default', # Modify this
-        'similarity_method':        'Cosine',
+        # Indecisive related
         'find_indecisives':         False,
-        'find_similars':            False,
         'num_top_p_predictions':    5,
-        'num_top_i_images':         11,
-        'num_top_s_similar':        10
+        'num_top_i_images':         9,
+        'sort_method':              'default', 
+                                #   'weighted'
+        'weighted_threshold':       0,
+        # Similar related
+        'find_similars':            False,
+        'num_top_s_similar':        9,
+        'similarity_method':        'Cosine',
+                                #   'KL'
     }
     prod_ubu = {
         'dict_mode':                'SAVE',
         'model_dir':                '/home/xu/Documents/inception',
         'dataset_name':             'sample_fall11_urls_t10000', # Modify this
-        'sort_method':              'default', # Modify this
-        'similarity_method':        'Cosine',
+        # Indecisive related
         'find_indecisives':         False,
-        'find_similars':            False,
         'num_top_p_predictions':    5,
-        'num_top_i_images':         15,
-        'num_top_s_similar':        10
+        'num_top_i_images':         9,
+        'sort_method':              'default', 
+                                #   'weighted'
+        'weighted_threshold':       0,
+        # Similar related
+        'find_similars':            False,
+        'num_top_s_similar':        9,
+        'similarity_method':        'Cosine',
+                                #   'KL'
     }
-
+    prod_mac = {
+        'dict_mode':                'SAVE',
+        'model_dir':                '/home/xu/Documents/inception',
+        'dataset_name':             'sample_fall11_urls_t10000', # Modify this
+        # Indecisive related
+        'find_indecisives':         False,
+        'num_top_p_predictions':    5,
+        'num_top_i_images':         9,
+        'sort_method':              'default', 
+                                #   'weighted'
+        'weighted_threshold':       0,
+        # Similar related
+        'find_similars':            False,
+        'num_top_s_similar':        9,
+        'similarity_method':        'Cosine',
+                                #   'KL'
+    }
 
     use_dic = dev_mac
     # use_dic = prod_ubu
@@ -468,27 +516,11 @@ if __name__ == '__main__':
         default=use_dic['dataset_name'],
         help='Dataset name for provided images'
     )
-    parser.add_argument(
-        '--similarity_method',
-        type=str,
-        default=use_dic['similarity_method'],
-        help='The method to compare the similarity of two distributions'
-    )
-    parser.add_argument(
-        '--sort_method',
-        type=str,
-        default=use_dic['sort_method'],
-        help='Either default or weighted.'
-    )
+    """Indecisive related"""
     parser.add_argument(
         '--find_indecisives',
         type=bool,
         default=use_dic['find_indecisives']
-    )
-    parser.add_argument(
-        '--find_similars',
-        type=bool,
-        default=use_dic['find_similars']
     )
     parser.add_argument(
         '--num_top_p_predictions',
@@ -501,11 +533,39 @@ if __name__ == '__main__':
         default=use_dic['num_top_i_images']
     )
     parser.add_argument(
+        '--sort_method',
+        type=str,
+        default=use_dic['sort_method'],
+        help='Either default or weighted.'
+    )
+    parser.add_argument(
+        '--weighted_threshold',
+        type=int,
+        default=use_dic['weighted_threshold'],
+        help="""
+        Weighted threshold to filter out those images with 
+        SUM(top_p_preditions) > weighed_threshold
+        """
+    )
+
+    """Similar related"""
+    parser.add_argument(
+        '--find_similars',
+        type=bool,
+        default=use_dic['find_similars']
+    )
+    parser.add_argument(
         '--num_top_s_similar',
         type=int,
         default=use_dic['num_top_s_similar'],
         help='Top s number of most similar images for given image.'
     )
-   
+    parser.add_argument(
+        '--similarity_method',
+        type=str,
+        default=use_dic['similarity_method'],
+        help='The method to compare the similarity of two distributions'
+    )
+    
     FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
