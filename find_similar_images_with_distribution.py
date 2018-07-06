@@ -10,6 +10,31 @@ This program creates a graph from a saved GraphDef protocol buffer,
 and runs inference on an input JPEG image. It outputs human readable
 strings of the top 5 predictions along with their probabilities.
 
+-targets
+    -dataset_name
+        -*(target).jpg
+
+-outputs
+    -dataset_name
+        # Do not need 'targets'
+        -indecisive
+            -default
+                -*.jpg
+                -dict_num_top_i_images
+            -weighted
+                -*.jpg
+                -dict_num_top_i_images
+        # Do need 'targets'
+        -similar
+            -Cosine
+                -*(imagename)    
+                    -*(similars)
+                    -similar_top_num_top_s_similar
+            -KL
+                -*(imagename)
+                    -*(similars)
+                    -similar_top_num_top_s_similar
+
 Reference:
   https://github.com/tensorflow/models
 
@@ -202,8 +227,7 @@ def maybe_download_and_extract():
 def sort_dictionary(given_dictionary, method='default'):
     # Sort the dic with 'FLAGS.sort_method' as sorted_dict:
     #   1. sort the predictions, and only store the top 'FLAGS.num_top_p_predictions'.
-    predictions_sorted_dictionary = {}
-    
+    predictions_sorted_dictionary = {} 
     for key in given_dictionary:
         predictions_sorted_dictionary[key] = sorted(given_dictionary[key], key=lambda x: x[1], reverse=True)[:FLAGS.num_top_p_predictions]
 
@@ -228,17 +252,29 @@ def sort_similarity_dictionary(sim_dic):
     return sorted_sim_dic
 
 def write_to_file(given_dictionary, directory, filename, mode):
-    for idx, (key, item) in tqdm(enumerate(given_dictionary.iteritems())):
-        write_dir = None
-        if mode == 0:
-            write_dir = os.path.join(directory, filename)
-        elif mode == 1:
-            write_dir = os.path.join(directory, key, filename)
-
+    # Write dict of "num_top_i_images" images' "num_top_p_predictions" distributions
+    if mode == 0:
+        write_dir = os.path.join(directory, filename)
         with open(write_dir, 'w') as f:
-            f.write('Given Image {}\n'.format(key))
-            for pair in item:
-                f.write('\t%.9f:  %s\n' % (pair[1], pair[0]))
+            for _, (key, pairs) in tqdm(enumerate(given_dictionary.iteritems())):
+                # _: enumerate_i, key: xxx.jpg, pairs: [('category', probability)]
+                f.write('{}\n'.format(key))
+                f.write('\tProbabilities\tCategories\n')
+                for pair in pairs:
+                    # pair: ('category', probability)
+                    f.write('\t%.9f:  %s\n' % (pair[1], pair[0]))
+    # Write num_top_s_similar of similar images 
+    # {'xxx.jpg': [('s1.jpg', similarity), ...], ...}
+    elif mode == 1:
+        for _, (key, pairs) in tqdm(enumerate(given_dictionary.iteritems())):
+            write_dir = os.path.join(directory, key, filename)
+            with open(write_dir, 'w') as f:
+                f.write('Target {}:\n'.format(key))
+                f.write('\tImages\t{} Similarities\n'.format(FLAGS.similarity_method))
+                for i, pair in enumerate(pairs):
+                    # pair: ('s1', similarity)
+                    f.write('%d\t%s:\t%.9f\n' % (i+1, pair[0], pair[1]))
+            
 
 def filter_copy_files_to_dir(given_dictionary, directory, mode):
     # Clean the directory
@@ -347,9 +383,9 @@ def main(_):
             print("Finished calculating similarities")
 
             # Sort sim_dic and only store 'FLAGS.num_top_s_similar' as sorted_tar_similarities
+            # {'xxx.jpg': [('s1.jpg', similarity), ...], ...}
             sorted_sim_dic = sort_similarity_dictionary(sim_dic)
             print("Finished sorting similarities")
-
 
             write_dir = os.path.join(FLAGS.model_dir, 'outputs', FLAGS.dataset_name, 'similar', FLAGS.similarity_method)
             if not os.path.exists(write_dir):
@@ -394,8 +430,8 @@ if __name__ == '__main__':
     }
 
 
-    # use_dic = dev_mac
-    use_dic = prod_ubu
+    use_dic = dev_mac
+    # use_dic = prod_ubu
 
     parser.add_argument(
         '--dict_mode',
