@@ -238,9 +238,15 @@ def sort_dictionary(given_dictionary, method='default'):
             top_p_sum = np.sum(np.array([pair[1] for pair in top_p_prediction_pairs]))
             if top_p_sum > FLAGS.weighted_threshold/100:
                 predictions_sorted_dictionary[key] = top_p_prediction_pairs
+        elif method == 'ratio':
+            # TODO: add ratio part
+            pass
 
     #   2. sort the files according to its indecisiveness and only store the top 'FLAGS.num_top_i_images'.
-    if (method == 'weighted'):
+    if method == 'default': # default
+        return collections.OrderedDict(sorted(predictions_sorted_dictionary.items(), 
+                                    key=lambda it: it[1][0][1], reverse=True)[:FLAGS.num_top_i_images])
+    elif method == 'weighted':
         def weighted_lambda(item):
             weighted_sum = 0
             mean = sum([item[1][i][1] for i in range(FLAGS.num_top_p_predictions)])/FLAGS.num_top_p_predictions
@@ -249,14 +255,16 @@ def sort_dictionary(given_dictionary, method='default'):
                 weighted_sum = weighted_sum + (curr_score - mean)**2
             return weighted_sum
         return collections.OrderedDict(sorted(predictions_sorted_dictionary.items(), key=weighted_lambda)[:FLAGS.num_top_i_images])
-    else: # default
-        return collections.OrderedDict(sorted(predictions_sorted_dictionary.items(), 
-                                    key=lambda it: it[1][0][1], reverse=True)[:FLAGS.num_top_i_images])
+    elif method == 'ratio':
+        # TODO: add ratio part
+        pass
 
 def sort_similarity_dictionary(sim_dic):
+    #     {'xxx.jpg': [('s1.jpg', similarity), ...], ...} 
+    # --> {'xxx.jpg': ([(category, score), ...], [('s1.jpg', similarity, [(category, score), ...]), ...]), ...}
     sorted_sim_dic = {}
     for key, item in sim_dic.iteritems():
-        sorted_sim_dic[key] = sorted(item, key=lambda x: x[1], reverse=True)[:FLAGS.num_top_s_similar]
+        sorted_sim_dic[key] = sorted(item, key=lambda x: x[1][1], reverse=True)[:FLAGS.num_top_s_similar]
     return sorted_sim_dic
 
 
@@ -278,14 +286,16 @@ def write_to_file(given_dictionary, directory, filename, mode, lookup_dictionary
     # Write num_top_s_similar of similar images 
     # {'xxx.jpg': [('s1.jpg', similarity), ...], ...}
     elif mode == 1:
+        #     {'xxx.jpg': [('s1.jpg', similarity), ...], ...} 
+        # --> {'xxx.jpg': ([(category, score), ...], [('s1.jpg', similarity, [(category, score), ...]), ...]), ...}
         def find_top_p_pairs(given_pairs):
             return sorted(given_pairs, key=lambda x: x[1], reverse=True)[:FLAGS.num_top_p_predictions]
-        for _, (key, pairs) in tqdm(enumerate(given_dictionary.iteritems())):
+        for _, (key, (distribs, pairs)) in tqdm(enumerate(given_dictionary.iteritems())):
             write_dir = os.path.join(directory, key, filename)
             with open(write_dir, 'w') as f:
                 f.write('{0}Target {1}:{0}\n'.format('='*5,key))
                 # Write given image's distributions (top_p_predictions)
-                for i, pair in enumerate(find_top_p_pairs(lookup_dictionary[key])):
+                for i, pair in enumerate(find_top_p_pairs(pairs)):
                     f.write('  %d\t%.5f:  %s:\n' % (i+1, pair[1], pair[0]))
                 f.write('{}\n'.format('='*30))
                 # Write each similar images
@@ -311,8 +321,12 @@ def filter_copy_files_to_dir(given_dictionary, directory, mode):
                                      os.path.join(directory, str(key) + '.' + filename.split('.')[-1]))
         elif mode == 1:
             #   key:index   item:('xxx.jpg', [('s1.jpg', similarity),...])
-            for i, pair in enumerate(item[1]):
+            #     {'xxx.jpg': [('s1.jpg', similarity), ...], ...} 
+            #   key:index   item:('xxx.jpg', ([(category, score), ...], [('s1.jpg', similarity, [(category, score), ...]))
+            # --> {'xxx.jpg': ([(category, score), ...], [('s1.jpg', similarity, [(category, score), ...]), ...]), ...}
+            for i, pair in enumerate(item[1][1]):
                 #   i: index  pair:('s1.jpg', similarity)
+                #   i: index  pair:('s1.jpg', similarity, [(category, score), ...])
                 filename = pair[0]
                 if not os.path.exists(os.path.join(directory, item[0])):
                     os.makedirs(os.path.join(directory, item[0]))
@@ -332,7 +346,8 @@ def calculate_similarities(tar_item, std_item):
         similarity = dot/(mod_tar_vec*mod_std_vec)
         return similarity
     elif FLAGS.similarity_method == "KL":
-        p_over_q = tar_vec / std_vec
+        LAPLACE = 1e-9
+        p_over_q = (tar_vec + LAPLACE) / (std_vec+LAPLACE)
         log_p_over_q = np.log10(p_over_q)
         KL = np.dot(tar_vec, log_p_over_q)
         return -KL
@@ -394,14 +409,16 @@ def main(_):
             tar_dic = run_predictions(target_dir) # {'xxx.jpg': [(category, 0.0012), ...], ...}
 
             # Calculate similarities between tar_dic of the images in the 'target_dir' and every distribution in dic and store as sim_dic.
-            sim_dic = {} # {'xxx.jpg': [('s1.jpg', similarity), ...], ...}
+            sim_dic = {} 
+            #     {'xxx.jpg': [('s1.jpg', similarity), ...], ...} 
+            # --> {'xxx.jpg': ([(category, score), ...], [('s1.jpg', similarity, [(category, score), ...]), ...]), ...}
             # item: [('fox', score),...]
             for tar_key, tar_item in tar_dic.iteritems():
                 sim_list = []
                 # !!! Implement different types of SIMILARITY functions !!!
                 for key, item in dic.iteritems():
-                    sim_list.append((key, calculate_similarities(tar_item, item)))
-                sim_dic[tar_key] = sim_list 
+                    sim_list.append((key, calculate_similarities(tar_item, item), item))
+                sim_dic[tar_key] = (tar_item, sim_list)
             print("Finished calculating similarities")
 
             # Sort sim_dic and only store 'FLAGS.num_top_s_similar' as sorted_tar_similarities
@@ -449,7 +466,7 @@ if __name__ == '__main__':
         'dataset_name':             'sample_fall11_urls_t10000', # Modify this
         # Indecisive related
         'find_indecisives':         False,
-        'num_top_p_predictions':    5,
+        'num_top_p_predictions':    3,
         'num_top_i_images':         9,
         'sort_method':              'default', 
                                 #   'weighted'
@@ -478,8 +495,8 @@ if __name__ == '__main__':
                                 #   'KL'
     }
 
-    use_dic = dev_mac
-    # use_dic = prod_ubu
+    # use_dic = dev_mac
+    use_dic = prod_ubu
 
     parser.add_argument(
         '--dict_mode',
