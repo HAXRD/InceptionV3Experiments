@@ -1,2 +1,5 @@
+reconstruct/__pycache__
 reconstruct/data
+reconstruct/output
+reconstruct/target
 reconstruct/data_prep/imagenet_fall11_urls.tgz

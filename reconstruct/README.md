@@ -20,7 +20,17 @@ $ python download.py
 
 ### Fetch Dataset from ImageNet
 
+Go to ```./```, and run 
 
+```
+$ python scrape_dataset.py
+```
+
+or specify the parameters
+
+```
+$ python scrape_dataset.py --upper 1000 --read_mode 'RANDOM' --seed 5
+```
 
 # References
 https://github.com/tensorflow/models

@@ -135,7 +135,11 @@ def run_predictions(images_dir: str):
 def get_predictions_dict(images_dir: str):
     """Restore from the dict file or run 'run_predictions' and Save to dict file."""
     dest_folder = os.path.join(DIR, DICTIONARY_FOLDER)
-    dest_file = os.path.join(DIR, DICTIONARY_FOLDER, os.path.basename(images_dir)+'.pickle')
+    dest_file = os.path.join(
+                    DIR, DICTIONARY_FOLDER, 
+                    os.path.basename(os.path.dirname(images_dir)) + '_' + \
+                    os.path.basename(images_dir)+'.pickle')
+
     # Check if DICTIONARY_FOLDER exists, makedir if not
     if not os.path.exists(dest_folder):
         logger.info('Creating folder {}.'.format(dest_folder))

@@ -35,9 +35,10 @@ prod = {
 }
 
 
-"""Initialize configured 'url_file' path, because we are 
-    not going to download all the images from 'fall11_urls.txt'"""
+
 def initial_urls_file_path():
+    """ Initialize configured 'url_file' path, because we are 
+        not going to download all the images from 'fall11_urls.txt'"""
     if FLAGS.read_mode == 'DEFAULT':
         path = os.path.join(
             DIR, URL_FILE.split('.')[0] + '_top' + str(FLAGS.upper) + '.txt')
@@ -47,20 +48,20 @@ def initial_urls_file_path():
             DIR, URL_FILE.split('.')[0] + '_top' + str(FLAGS.upper) + '_seed' + str(FLAGS.seed) + '.txt')
         return path
 
-"""Write smaller size of 'write_url_file' according to user's args"""
 def write_url_file(filepath: str):
-    
+    """Write smaller size of 'write_url_file' according to user's args"""
+
     if not os.path.exists(filepath):
         if FLAGS.read_mode == 'DEFAULT':
             logger.info('{}: start reading {}'.format(FLAGS.read_mode, os.path.join(DIR, URL_FILE)))
             data = []
-            with open(os.path.join(DIR, URL_FILE), 'r') as source:
+            with open(os.path.join(DIR, URL_FILE), 'rb') as source:
                 for i, line in enumerate(source):
-                    data.append(line)
-                    if i > FLAGS.upper:
+                    if i >= FLAGS.upper:
                         break
+                    data.append(line)
             logger.info('{}: start writing {}'.format(FLAGS.read_mode, filepath))
-            with open(filepath, 'w') as target:
+            with open(filepath, 'wb') as target:
                 for line in data:
                     target.write(line)
             logger.info('{}: finish writing {}'.format(FLAGS.read_mode, filepath))
@@ -69,29 +70,31 @@ def write_url_file(filepath: str):
             random.seed(FLAGS.seed)
             logger.info('{}: start reading {}'.format(FLAGS.read_mode, os.path.join(DIR, URL_FILE)))
             data = []
-            with open(os.path.join(DIR, URL_FILE), 'r') as source:
-                data = [(random.random(), line) for line in source].sort()
+            with open(os.path.join(DIR, URL_FILE), 'rb') as source:
+                data = sorted([(random.random(), line) for line in source], key=lambda x: x[1])
             logger.info('{}: start writing {}'.format(FLAGS.read_mode, filepath))
-            with open(filepath, 'w') as target:
-                for i, line in enumerate(data):
-                    target.write(line)
-                    if i > FLAGS.upper:
+            with open(filepath, 'wb') as target:
+                for i, (_, line) in enumerate(data):
+                    if i >= FLAGS.upper:
                         break
+                    target.write(line)
+                    
             logger.info('{}: finish writing {}'.format(FLAGS.read_mode, filepath))
         pass
     else:
         logger.warning('File {} already exists!'.format(os.path.basename(filepath)))
 
-"""Read the 'url_file' and download the images with urls."""
 def download_images(filepath: str):
+    """Read the 'url_file' and download the images with urls."""
+
     dest_dir = os.path.join(DIR, os.path.basename(filepath).split('.')[0])
     logger.debug('dest_dir: {}'.format(dest_dir))
     
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
-    logger.info('Images will be stored in {}.'.format(dest_dir))
+    logger.info('Images will be stored in {}'.format(dest_dir))
     with open(filepath, 'r') as f:
-        for line in f:
+        for i, line in enumerate(f):
             image_name, image_url = line.split()
 
             # Filter out invalid images
@@ -108,9 +111,12 @@ def download_images(filepath: str):
                 urllib.request.urlopen(req, timeout=1)
                 urllib.request.urlretrieve(
                     image_url, os.path.join(dest_dir, image_name))
-                logger.debug('>> Downloaded {}'.format(image_name))
+                logger.debug(
+                    '>> Downloaded {0} | {1:.1f}%'.format(image_name, float(i+1)/float(FLAGS.upper)*100.))
             except:
                 logger.error('>> Error occurred: {} {}'.format(image_name, image_url))
+    logger.info('Finish downloading images. Images are stored in {}'.format(dest_dir))
+    logger.info('Dataset_name: {}'.format(os.path.basename(dest_dir)))
 
 def main(_):
     download_file_path = initial_urls_file_path()
@@ -118,7 +124,7 @@ def main(_):
 
     write_url_file(download_file_path)
     download_images(download_file_path)
-    pass
+    
 
 if __name__ == '__main__':
     

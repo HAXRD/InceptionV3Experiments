@@ -1,43 +1,3 @@
-
-"""Find most ambiguous images from given set of images.
-
-Run with Inception trained on ImageNet 2012 Challenge data
-set.
-
-This program creates a graph from a saved GraphDef protocol buffer,
-and runs inference on an input JPEG image. It outputs human readable
-strings of the top 5 predictions along with their probabilities.
-
--targets
-    -dataset_name
-        -*(target).jpg
-
--outputs
-    -dataset_name
-        # Do not need 'targets'
-        -indecisive
-            -default
-                -*.jpg
-                -dict_num_top_i_images
-            -weighted
-                -*.jpg
-                -dict_num_top_i_images
-        # Do need 'targets'
-        -similar
-            -Cosine
-                -*(imagename)    
-                    -*(similars)
-                    -similar_top_num_top_s_similar
-            -KL
-                -*(imagename)
-                    -*(similars)
-                    -similar_top_num_top_s_similar
-
-Reference:
-  https://github.com/tensorflow/models
-
-"""
-
 import os
 import sys
 import shutil
@@ -131,7 +91,7 @@ def ambiguous_copy_files(given_dict: dict, dataset_name: str, type_: str):
 
     logger.info('Start copying images.')
     for i, (filename, _) in tqdm(enumerate(given_dict.items())):
-        if i > NUM_TOP_i_IMAGES:
+        if i >= NUM_TOP_i_IMAGES:
             break
         shutil.copyfile(
             os.path.join(source_dir, filename),
@@ -149,11 +109,12 @@ def ambiguous_write_dict(given_dict: dict, dataset_name: str, type_: str):
         type_:          ambiguous or confident
     """
     dest_dir = os.path.join(OUTPUT_DIR, dataset_name, 'ambiguous', type_)
-    dict_filename = os.path.join(dest_dir, 'top_' + str(NUM_TOP_i_IMAGES) + 'distributions.txt')
+    dict_filename = os.path.join(dest_dir, 'top_' + str(NUM_TOP_i_IMAGES) + '_distributions.txt')
 
+    logger.info('Start to write dictionary')
     with open(dict_filename, 'w') as f:
         for i, (filename, distribution) in tqdm(enumerate(given_dict.items())):
-            if i > NUM_TOP_i_IMAGES:
+            if i >= NUM_TOP_i_IMAGES:
                 break
             f.write('{}. {}\n'.format(i+1, filename))
             f.write('\tProbabilities\tCategories\n')
@@ -164,6 +125,12 @@ def ambiguous_write_dict(given_dict: dict, dataset_name: str, type_: str):
                 prob_sum = prob_sum + score
                 f.write('\t{0:.5f}:  {1}\n'.format(score, cate))
             f.write('\t{0:.5f}:  SUM\n'.format(prob_sum))
+    logger.info('Finish writing dictionary')
+
+def ambiguous_copy_n_write(given_dict: dict, dataset_name: str, type_: str):
+    """ Copy images and Write distribution file """
+    ambiguous_copy_files(given_dict, dataset_name, type_)
+    ambiguous_write_dict(given_dict, dataset_name, type_)
 
 def get_dict_with_top_k_pairs(sorted_dict, top_k):
     """ This is for testing
@@ -181,17 +148,15 @@ if __name__ == '__main__':
     from pprint import pprint
     from classify_images import get_predictions_dict
     
-    predictions_dict = get_predictions_dict(os.path.join(DIR, 'fall11_urls_top30'))
+    predictions_dict = get_predictions_dict('fall11_urls_top30')
 
     sorted_by_confidence_dict = find_confident_images(predictions_dict)
     # pprint(get_dict_with_top_k_pairs(sorted_by_confidence_dict, 2))
     # print(len(sorted_by_confidence_dict))
-    ambiguous_copy_files(sorted_by_confidence_dict, 'fall11_urls_top30', 'confident')
-    ambiguous_write_dict(sorted_by_confidence_dict, 'fall11_urls_top30', 'confident')
+    ambiguous_copy_n_write(sorted_by_confidence_dict, 'fall11_urls_top30', 'confident')
     print("-"*40)
 
     sorted_by_ambiguous_dict = find_ambiguous_images(predictions_dict, 2, 60)
     # pprint(get_dict_with_top_k_pairs(sorted_by_ambiguous_dict, 2))
     # print(len(sorted_by_ambiguous_dict))
-    ambiguous_copy_files(sorted_by_ambiguous_dict, 'fall11_urls_top30', 'ambiguous')
-    ambiguous_write_dict(sorted_by_ambiguous_dict, 'fall11_urls_top30', 'ambiguous')
+    ambiguous_copy_n_write(sorted_by_ambiguous_dict, 'fall11_urls_top30', 'ambiguous')

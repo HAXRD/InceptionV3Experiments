@@ -12,6 +12,8 @@ SIMILAR_FOLDER = 'similar'
 KL_FOLDER = 'KL'
 COS_FOLDER = 'COS'
 
+TARGET_DIR = './target'
+
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 
 NUM_TOP_i_IMAGES = 10
