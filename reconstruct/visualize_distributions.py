@@ -82,7 +82,7 @@ def visualize_distribution(sorted_sim_dict: dict, dataset_name: str, type_: str)
             
             sub[i].barh(x, y_tar, alpha=0.5, color='b', label=target_filename)
             sub[i].barh(x, y_dst, alpha=0.5, color='r', label=dataset_filename)
-            sub[i].legend(prop={'size': 5})
+            sub[i].legend(loc='center left', bbox_to_anchor=(1, 0.5), prop={'size': 5})
             sub[i].tick_params(axis='both', which='major', labelsize=5)
         # Plot distributions into tar_dest_dir
         logger.debug('Will save to {}'.format(os.path.join(
