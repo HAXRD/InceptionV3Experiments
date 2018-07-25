@@ -1,5 +1,6 @@
 
 import os
+import sys
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -60,7 +61,7 @@ def visualize_distribution(sorted_sim_dict: dict, dataset_name: str, type_: str)
     dest_dir = os.path.join(OUTPUT_DIR, dataset_name, 'similar', type_)
 
     logger.info('Start visualizing distributions.')
-    for (target_filename, (target_distrib, sorted_target_sim_dict)) in sorted_sim_dict.items():
+    for (target_filename, (target_distrib, sorted_target_sim_dict)) in tqdm(sorted_sim_dict.items()):
         tar_dest_dir = os.path.join(dest_dir, target_filename)
 
         # We only write one png file per target_instance
@@ -95,6 +96,12 @@ def visualize_distribution(sorted_sim_dict: dict, dataset_name: str, type_: str)
 
 
 if __name__ == '__main__':
+
+    # Set dataset_name
+    dataset_name = sys.argv[1]
+    # Set target_folder_name
+    target_folder_name = sys.argv[2]
+
     from download_inceptionV3 import maybe_download_and_extract
     maybe_download_and_extract()
 
@@ -102,15 +109,13 @@ if __name__ == '__main__':
     from classify_images import run_predictions, get_predictions_dict
 
     # Get dataset and target dictionaries
-    maybe_sample_images('fall11_urls_top30')
-    dataset_dict = get_predictions_dict(os.path.join(DIR, 'fall11_urls_top30'))
-    target_dict = get_predictions_dict(os.path.join(TARGET_DIR, 'fall11_urls_top30'))
+    dataset_dict = get_predictions_dict(os.path.join(DIR, dataset_name))
+    target_dict = get_predictions_dict(os.path.join(TARGET_DIR, target_folder_name))
 
-    sim_dict = get_similarity_dict(target_dict, dataset_dict, 'COS')
-    sorted_sim_dict = get_sorted_similarity_dict(sim_dict)
+    # Use different similarity algorithm to find similar images
+    for sim_algo in ['COS', 'KL']:
+        sim_dict = get_similarity_dict(target_dict, dataset_dict, sim_algo)
+        sorted_sim_dict = get_sorted_similarity_dict(sim_dict)
 
-    similar_copy_files(sorted_sim_dict, 'fall11_urls_top30', 'COS')
-    similar_write_files(sorted_sim_dict, 'fall11_urls_top30', 'COS')
-
-    # Visualize distributions
-    visualize_distribution(sorted_sim_dict, 'fall11_urls_top30', 'COS')
+        # Visualize distributions
+        visualize_distribution(sorted_sim_dict, dataset_name, sim_algo)
