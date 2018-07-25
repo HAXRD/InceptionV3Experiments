@@ -2,6 +2,7 @@ import os
 import sys
 
 from download_inceptionV3 import maybe_download_and_extract
+from raise_temperature import raise_temperature
 from classify_images import get_predictions_dict
 from find_ambiguous_images import find_confident_images, find_ambiguous_images, ambiguous_copy_n_write
 from find_similar_images import maybe_sample_images, get_similarity_dict, get_sorted_similarity_dict, similar_copy_files, similar_write_files
@@ -24,6 +25,10 @@ if __name__ == '__main__':
     # Get dataset_dict and target_dict
     dataset_dict = get_predictions_dict(os.path.join(DIR, dataset_name))
     target_dict  = get_predictions_dict(os.path.join(TARGET_DIR, target_folder_name))
+
+    # Raise temperature for distributions: smoothing
+    dataset_dict = raise_temperature(dataset_dict)
+    target_dict  = raise_temperature(target_dict)
 
     # Get most confident and ambiguous images
     sorted_by_confidence_dict = find_confident_images(dataset_dict)
