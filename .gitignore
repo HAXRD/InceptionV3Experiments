@@ -3,3 +3,5 @@ reconstruct/data
 reconstruct/output
 reconstruct/target
 reconstruct/data_prep/imagenet_fall11_urls.tgz
+model/data_prep/negative
+*.tfrecord
