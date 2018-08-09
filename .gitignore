@@ -4,4 +4,13 @@ reconstruct/output
 reconstruct/target
 reconstruct/data_prep/imagenet_fall11_urls.tgz
 model/data_prep/negative
+model/data_prep/positive
+model/data_prep/generating
+model/data_prep/output
 *.tfrecord
+
+
+*.pyc
+*.DS_Store
+
+events.*

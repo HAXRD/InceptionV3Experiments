@@ -3,6 +3,7 @@ import sys
 import re
 import argparse
 import shutil
+import cv2
 
 SRC_DIR = '../../reconstruct/output'
 DATA_DIR = '../../reconstruct/data'
@@ -47,11 +48,14 @@ def prepare_negative_dataset(dataset_name, method_name, src_dataset_name):
         print(file_path)
 
         if os.path.exists(file_path):
-            shutil.copyfile(file_path, os.path.join(output_dir, file))
+            try:
+                cv2.imread(os.path.join(file_path))
+                shutil.copyfile(file_path, os.path.join(output_dir, file))
+            except Exception as e:
+                print(f"Error: {e}")
         
 
     # print(folders)
-
 
 if __name__ == '__main__':
     
